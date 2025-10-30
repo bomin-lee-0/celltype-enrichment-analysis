@@ -84,3 +84,7 @@ backup_*/
 # Keep README files in results folders
 !2.Results/*/README.md
 !0.Data/*/README.md
+# Rat-midbrain specific
+projects/rat-midbrain/ratlas_env/
+projects/rat-midbrain/.miniconda.exe
+*.exe
