@@ -1,0 +1,172 @@
+# ============================================================
+# Configuration file for rat-midbrain ChIP-seq analysis
+# ============================================================
+
+# Project paths
+project_dir: "projects/rat-midbrain"
+data_dir: "projects/rat-midbrain/0_data"
+results_dir: "projects/rat-midbrain"
+
+# Reference genome
+genome:
+  name: "rn7"
+  size: "2.5e8"  # Rat genome size for MACS2
+  fasta: "path/to/rn7.fa"  # Update with actual path
+  bowtie2_index: "path/to/rn7_index"  # Update with actual path
+
+# Sample information - Actual samples from server
+samples:
+  # NeuN - Neuronal marker
+  - name: "IGF131357"
+    celltype: "NeuN"
+    fastq_r1: "0_data/IGF131357_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131357_R2.fastq.gz"
+    input: "IGF131373"
+
+  - name: "IGF131358"
+    celltype: "NeuN"
+    fastq_r1: "0_data/IGF131358_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131358_R2.fastq.gz"
+    input: "IGF131373"
+
+  - name: "IGF131359"
+    celltype: "NeuN"
+    fastq_r1: "0_data/IGF131359_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131359_R2.fastq.gz"
+    input: "IGF131373"
+
+  # Nurr - Dopaminergic neurons
+  - name: "IGF131366"
+    celltype: "Nurr"
+    fastq_r1: "0_data/IGF131366_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131366_R2.fastq.gz"
+    input: "IGF131376"
+
+  - name: "IGF131367"
+    celltype: "Nurr"
+    fastq_r1: "0_data/IGF131367_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131367_R2.fastq.gz"
+    input: "IGF131376"
+
+  # Olig - Oligodendrocytes
+  - name: "IGF131360"
+    celltype: "Olig"
+    fastq_r1: "0_data/IGF131360_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131360_R2.fastq.gz"
+    input: "IGF131374"
+
+  - name: "IGF131361"
+    celltype: "Olig"
+    fastq_r1: "0_data/IGF131361_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131361_R2.fastq.gz"
+    input: "IGF131374"
+
+  - name: "IGF131362"
+    celltype: "Olig"
+    fastq_r1: "0_data/IGF131362_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131362_R2.fastq.gz"
+    input: "IGF131374"
+
+  # Neg - Negative control
+  - name: "IGF131369"
+    celltype: "Neg"
+    fastq_r1: "0_data/IGF131369_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131369_R2.fastq.gz"
+    input: "IGF131377"
+
+  - name: "IGF131370"
+    celltype: "Neg"
+    fastq_r1: "0_data/IGF131370_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131370_R2.fastq.gz"
+    input: "IGF131377"
+
+  - name: "IGF131371"
+    celltype: "Neg"
+    fastq_r1: "0_data/IGF131371_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131371_R2.fastq.gz"
+    input: "IGF131377"
+
+# Input/control samples
+input_samples:
+  - name: "IGF131373"
+    celltype: "Input_NeuN"
+    fastq_r1: "0_data/IGF131373_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131373_R2.fastq.gz"
+
+  - name: "IGF131376"
+    celltype: "Input_Nurr"
+    fastq_r1: "0_data/IGF131376_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131376_R2.fastq.gz"
+
+  - name: "IGF131374"
+    celltype: "Input_Olig"
+    fastq_r1: "0_data/IGF131374_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131374_R2.fastq.gz"
+
+  - name: "IGF131377"
+    celltype: "Input_Neg"
+    fastq_r1: "0_data/IGF131377_R1.fastq.gz"
+    fastq_r2: "0_data/IGF131377_R2.fastq.gz"
+
+# Cell type groupings for peak processing
+celltypes:
+  - NeuN
+  - Nurr
+  - Olig
+  - Neg
+
+# Parameters for each step
+parameters:
+  # Trimming
+  trim_galore:
+    quality: 20
+    length: 20
+    paired: true
+
+  # Alignment
+  bowtie2:
+    threads: 8
+    very_sensitive: true
+    max_fragment_length: 2000
+
+  # Duplicate removal
+  samtools:
+    remove_duplicates: true
+    quality_threshold: 20
+
+  # Peak calling (MACS2)
+  macs2:
+    format: "BAM"
+    genome_size: "2.5e8"
+    q_value: 0.05
+    broad: false
+    keep_dup: "auto"
+    nomodel: true
+    shift: 0
+    extsize: 200
+    bdg: true  # -B flag: generate bedGraph
+    spmr: true  # --SPMR: Signal per million reads
+
+  # FRiP threshold
+  qc:
+    min_frip: 0.2
+
+  # Peak annotation
+  annotation:
+    tss_region: [-3000, 3000]
+
+  # Enrichment analysis
+  enrichment:
+    pvalue_cutoff: 0.05
+    qvalue_cutoff: 0.2
+    ont: "BP"  # Biological Process
+
+  # Motif analysis
+  homer:
+    size: "given"
+    length: [8, 10, 12]
+
+# Computational resources
+resources:
+  threads: 8
+  memory: "32G"

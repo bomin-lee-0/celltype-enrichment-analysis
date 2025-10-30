@@ -7,6 +7,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 import gzip
+from pathlib import Path
+import os
+
+# 프로젝트 루트 디렉토리 설정
+SCRIPT_DIR = Path(__file__).parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+DATA_DIR = PROJECT_ROOT / "0.Data"
+RESULTS_DIR = PROJECT_ROOT / "2.Results"
 
 def load_celltype_annotations():
     """세포타입별 annotation 데이터 로드"""
@@ -26,25 +34,49 @@ def load_celltype_annotations():
         print(f"  {celltype} 로딩 중...")
         
         # 염색체 1번만 먼저 테스트
-        annot_file = f"/cephfs/volumes/hpc_data_prj/eng_waste_to_protein/ae035a41-20d2-44f3-aa46-14424ab0f6bf/repositories/bomin/ldsc_results/annotations/{file_prefix}.1.annot.gz"
-        
+        # LDSC annotation 파일이 없으면 BED 파일로부터 영역 정보 로드
+        annot_file = DATA_DIR / "Results" / "annotations" / f"{file_prefix}.1.annot.gz"
+        bed_file = DATA_DIR / "processed" / "hg19_coordinates" / f"cleaned_data_{file_prefix}_hg19.bed"
+
         try:
-            df = pd.read_csv(annot_file, sep='\t', compression='gzip')
-            
-            # 마지막 열이 enhancer annotation
-            enhancer_col = df.columns[-1]  # 마지막 열
-            
-            # Intersect된 SNP들만 선택
-            intersect_snps = df[df[enhancer_col] == 1]['SNP'].tolist()
-            
-            print(f"    염색체 1: {len(intersect_snps)}개 SNP가 {celltype} enhancer와 intersect")
-            
-            all_annotations[celltype] = {
-                'intersect_snps': set(intersect_snps),
-                'total_snps': len(df),
-                'intersect_count': len(intersect_snps)
-            }
-            
+            if annot_file.exists():
+                # LDSC annotation 파일 사용
+                df = pd.read_csv(annot_file, sep='\t', compression='gzip')
+
+                # 마지막 열이 enhancer annotation
+                enhancer_col = df.columns[-1]  # 마지막 열
+
+                # Intersect된 SNP들만 선택
+                intersect_snps = df[df[enhancer_col] == 1]['SNP'].tolist()
+
+                print(f"    염색체 1: {len(intersect_snps)}개 SNP가 {celltype} enhancer와 intersect")
+
+                all_annotations[celltype] = {
+                    'intersect_snps': set(intersect_snps),
+                    'total_snps': len(df),
+                    'intersect_count': len(intersect_snps)
+                }
+            elif bed_file.exists():
+                # BED 파일에서 enhancer 영역 로드
+                bed_df = pd.read_csv(bed_file, sep='\t', header=None, names=['chr', 'start', 'end', 'name'])
+
+                print(f"    BED 파일에서 {len(bed_df)}개 enhancer 영역 로드")
+                print(f"    주의: SNP-enhancer overlap은 GWAS 데이터 로딩 후 계산됩니다")
+
+                all_annotations[celltype] = {
+                    'bed_regions': bed_df,
+                    'intersect_snps': set(),  # 나중에 계산
+                    'total_snps': 0,
+                    'intersect_count': 0
+                }
+            else:
+                print(f"    경고: annotation 파일과 BED 파일을 찾을 수 없습니다")
+                all_annotations[celltype] = {
+                    'intersect_snps': set(),
+                    'total_snps': 0,
+                    'intersect_count': 0
+                }
+
         except Exception as e:
             print(f"    오류: {e}")
             all_annotations[celltype] = {
@@ -55,29 +87,97 @@ def load_celltype_annotations():
     
     return all_annotations
 
+def compute_snp_overlaps(gwas_df, annotations):
+    """BED 영역과 GWAS SNP의 overlap 계산"""
+
+    print("\n🔍 SNP-enhancer overlap 계산 중...")
+
+    for celltype, data in annotations.items():
+        if 'bed_regions' in data and data['bed_regions'] is not None:
+            print(f"  {celltype} overlap 계산 중...")
+
+            bed_df = data['bed_regions']
+            intersect_snps = []
+
+            # 각 SNP에 대해 enhancer 영역과 overlap 확인
+            for _, snp in gwas_df.iterrows():
+                snp_chr = snp['CHR']
+                snp_pos = snp['BP']
+
+                # 해당 SNP이 어떤 enhancer 영역에 포함되는지 확인
+                overlaps = bed_df[
+                    (bed_df['chr'].astype(str) == str(snp_chr)) &
+                    (bed_df['start'] <= snp_pos) &
+                    (bed_df['end'] >= snp_pos)
+                ]
+
+                if len(overlaps) > 0:
+                    intersect_snps.append(snp['SNP'])
+
+            data['intersect_snps'] = set(intersect_snps)
+            data['intersect_count'] = len(intersect_snps)
+
+            print(f"    {len(intersect_snps)}개 SNP가 {celltype} enhancer와 overlap")
+
+    return annotations
+
 def load_gwas_with_positions():
     """GWAS 데이터와 위치 정보 함께 로드"""
     
     print("📊 GWAS 데이터 로딩 중...")
-    
+
     # GWAS 데이터
-    gwas_file = "/cephfs/volumes/hpc_data_prj/eng_waste_to_protein/ae035a41-20d2-44f3-aa46-14424ab0f6bf/repositories/bomin/ldsc_results/sumstats/parkinson_gwas.sumstats.gz"
+    gwas_file = DATA_DIR / "GWAS" / "GCST009325.h.tsv.gz"
     
     # 샘플링해서 로드 (메모리 절약)
-    sample_size = 500000
+    sample_size = 100000  # 테스트용: 10만개로 축소
     
     print(f"  GWAS 데이터 샘플링 로딩 중 (n={sample_size:,})...")
-    
+
     df = pd.read_csv(gwas_file, sep='\t', compression='gzip', nrows=sample_size)
-    
-    # P-value 계산
-    df['P'] = 2 * (1 - norm.cdf(np.abs(df['Z'])))
+
+    # 컬럼명 확인 및 표준화
+    print(f"  컬럼: {', '.join(df.columns[:10])}...")
+
+    # P-value 컬럼 찾기
+    p_col = None
+    for col in ['p_value', 'P', 'pvalue', 'PVAL']:
+        if col in df.columns:
+            p_col = col
+            break
+
+    if p_col:
+        df['P'] = df[p_col]
+    elif 'Z' in df.columns:
+        # Z-score가 있으면 P-value 계산
+        df['P'] = 2 * (1 - norm.cdf(np.abs(df['Z'])))
+    else:
+        print("  경고: P-value 컬럼을 찾을 수 없습니다!")
+        df['P'] = 0.5
+
     df['-log10P'] = -np.log10(np.maximum(df['P'], 1e-50))
-    
-    # 위치 정보 추가 (간단한 방법: SNP ID 기반 가상 위치)
-    # 실제로는 .bim 파일에서 가져와야 하지만, 데이터가 크므로 간단히 처리
-    df['CHR'] = 1  # 염색체 1번만 처리
-    df['BP'] = range(len(df))  # 순서대로 위치 할당
+
+    # 위치 정보 추가
+    chr_col = next((c for c in ['chromosome', 'CHR', 'chr'] if c in df.columns), None)
+    bp_col = next((c for c in ['base_pair_location', 'BP', 'bp', 'POS'] if c in df.columns), None)
+    snp_col = next((c for c in ['variant_id', 'rsid', 'SNP', 'ID'] if c in df.columns), None)
+
+    if chr_col:
+        df['CHR'] = df[chr_col]
+    else:
+        df['CHR'] = 1
+
+    if bp_col:
+        df['BP'] = df[bp_col]
+    else:
+        df['BP'] = range(len(df))
+
+    if snp_col:
+        df['SNP'] = df[snp_col]
+    elif 'rsid' in df.columns:
+        df['SNP'] = df['rsid']
+    else:
+        df['SNP'] = [f"SNP_{i}" for i in range(len(df))]
     
     print(f"  로딩 완료: {len(df):,} SNPs")
     print(f"  P-value 범위: {df['P'].min():.2e} - {df['P'].max():.2e}")
@@ -169,12 +269,17 @@ def create_celltype_manhattan_plots(gwas_df, annotations):
         ax.set_ylim(0, max_y)
     
     plt.tight_layout()
-    
+
     # 저장
-    plt.savefig('/scratch/prj/eng_waste_to_protein/repositories/bomin/celltype_manhattan_plots.png', 
+    plots_dir = RESULTS_DIR / "Plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(plots_dir / 'celltype_manhattan_plots.png',
                 dpi=300, bbox_inches='tight', facecolor='white')
-    plt.savefig('/scratch/prj/eng_waste_to_protein/repositories/bomin/celltype_manhattan_plots.pdf', 
+    plt.savefig(plots_dir / 'celltype_manhattan_plots.pdf',
                 bbox_inches='tight', facecolor='white')
+
+    print(f"  저장 완료: {plots_dir / 'celltype_manhattan_plots.png'}")
     
     plt.show()
     
@@ -244,32 +349,41 @@ def create_comparison_manhattan(gwas_df, annotations):
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     
     plt.tight_layout()
-    
+
     # 저장
-    plt.savefig('/scratch/prj/eng_waste_to_protein/repositories/bomin/celltype_comparison_manhattan.png', 
+    plots_dir = RESULTS_DIR / "Plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(plots_dir / 'celltype_comparison_manhattan.png',
                 dpi=300, bbox_inches='tight', facecolor='white')
-    plt.savefig('/scratch/prj/eng_waste_to_protein/repositories/bomin/celltype_comparison_manhattan.pdf', 
+    plt.savefig(plots_dir / 'celltype_comparison_manhattan.pdf',
                 bbox_inches='tight', facecolor='white')
-    
+
+    print(f"  저장 완료: {plots_dir / 'celltype_comparison_manhattan.png'}")
+
     plt.show()
 
 if __name__ == "__main__":
     print("🗽 세포타입별 enhancer 맨하탄 플롯 생성!")
     print("="*60)
-    
+
     # 1. 세포타입별 annotation 로드
     annotations = load_celltype_annotations()
-    
+
     # 2. GWAS 데이터 로드
     gwas_data = load_gwas_with_positions()
-    
-    # 3. 세포타입별 맨하탄 플롯 생성
+
+    # 3. BED 파일 사용 시 SNP-enhancer overlap 계산
+    annotations = compute_snp_overlaps(gwas_data, annotations)
+
+    # 4. 세포타입별 맨하탄 플롯 생성
     create_celltype_manhattan_plots(gwas_data, annotations)
-    
-    # 4. 비교 맨하탄 플롯 생성
+
+    # 5. 비교 맨하탄 플롯 생성
     create_comparison_manhattan(gwas_data, annotations)
-    
-    print(f"\\n✅ 세포타입별 맨하탄 플롯 생성 완료!")
+
+    print(f"\n✅ 세포타입별 맨하탄 플롯 생성 완료!")
     print(f"   저장된 파일:")
-    print(f"   - celltype_manhattan_plots.png (4-panel)")
-    print(f"   - celltype_comparison_manhattan.png (overlay)")
+    plots_dir = RESULTS_DIR / "Plots"
+    print(f"   - {plots_dir / 'celltype_manhattan_plots.png'} (4-panel)")
+    print(f"   - {plots_dir / 'celltype_comparison_manhattan.png'} (overlay)")

@@ -1,0 +1,46 @@
+name: ratlas_env
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - python>=3.9
+  - r-base>=4.3
+
+  # Alignment & Processing
+  - bowtie2
+  - samtools>=1.17
+  - bedtools
+
+  # Peak Calling
+  - macs2
+
+  # QC Tools
+  - fastqc
+  - multiqc
+  - trim-galore
+  - cutadapt
+
+  # Motif Analysis
+  - homer
+
+  # R packages for visualization
+  - r-ggplot2
+  - r-dplyr
+  - r-tidyr
+  - r-readr
+  - r-yaml
+
+  # Bioconductor packages
+  - bioconductor-chipseeker
+  - bioconductor-clusterprofiler
+  - bioconductor-txdb.rnorvegicus.ucsc.rn7.refgene
+  - bioconductor-org.rn.eg.db
+  - bioconductor-genomicranges
+  - bioconductor-genomicfeatures
+
+  # Additional utilities
+  - pandas
+  - numpy
+  - pyyaml
